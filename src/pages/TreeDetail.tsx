@@ -22,9 +22,17 @@ export default function TreeDetail() {
       supabase.from('incidents').select('*').eq('tree_id', id).order('submitted_at', { ascending: false }),
     ]).then(([{ data: t }, { data: p }, { data: i }]) => {
       setTree(t as Tree);
-      setPhotos((p as TreePhoto[]) || []);
-      setIncidents((i as Incident[]) || []);
-      if (p && p.length > 0) setActivePhoto((p as TreePhoto[])[0].url);
+      const treePhotos = (p as TreePhoto[]) || [];
+      const incidentList = (i as Incident[]) || [];
+      setPhotos(treePhotos);
+      setIncidents(incidentList);
+
+      if (treePhotos.length > 0) {
+        setActivePhoto(treePhotos[0].url);
+      } else {
+        const firstIncidentPhoto = incidentList.find(inc => inc.photo_url)?.photo_url;
+        if (firstIncidentPhoto) setActivePhoto(firstIncidentPhoto);
+      }
       setLoading(false);
     });
   }, [id]);

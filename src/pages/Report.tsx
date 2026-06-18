@@ -102,11 +102,14 @@ export default function Report() {
     setPhotoPreview(URL.createObjectURL(file));
   }
 
-  async function uploadPhoto(file: File, incidentId: string): Promise<string | null> {
+  async function uploadPhoto(file: File, fileId: string, folder = 'incidents'): Promise<string | null> {
     const ext = file.name.split('.').pop();
-    const path = `incidents/${incidentId}.${ext}`;
-    const { error } = await supabase.storage.from('tree-photos').upload(path, file, { upsert: true });
-    if (error) return null;
+    const path = `${folder}/${fileId}.${ext}`;
+    const { error: uploadErr } = await supabase.storage.from('tree-photos').upload(path, file, { upsert: true });
+    if (uploadErr) {
+      setError(`Photo upload failed: ${uploadErr.message}`);
+      return null;
+    }
     const { data } = supabase.storage.from('tree-photos').getPublicUrl(path);
     return data.publicUrl;
   }
@@ -177,6 +180,14 @@ export default function Report() {
       const incidentId = crypto.randomUUID();
       let photoUrl: string | null = null;
       if (photoFile) photoUrl = await uploadPhoto(photoFile, incidentId);
+
+      if (photoUrl) {
+        await supabase.from('tree_photos').insert({
+          tree_id: tree.id,
+          photo_type: 'full',
+          url: photoUrl,
+        });
+      }
 
       const { error: incErr } = await supabase.from('incidents').insert({
         id: incidentId,
