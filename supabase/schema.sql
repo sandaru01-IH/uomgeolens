@@ -61,21 +61,32 @@ create table if not exists zone_boundaries (
 -- Bucket name: tree-photos
 -- Public: true
 
+-- Storage policies (run in SQL Editor):
+insert into storage.buckets (id, name, public) values ('tree-photos', 'tree-photos', true)
+  on conflict (id) do nothing;
+
+create policy "tree_photos_public_read" on storage.objects for select
+  using (bucket_id = 'tree-photos');
+create policy "tree_photos_public_upload" on storage.objects for insert
+  with check (bucket_id = 'tree-photos');
+create policy "tree_photos_admin_delete" on storage.objects for delete
+  using (bucket_id = 'tree-photos' and auth.role() = 'authenticated');
+
 -- ─── ROW LEVEL SECURITY ──────────────────────────────────────────────────────
 alter table trees enable row level security;
 alter table tree_photos enable row level security;
 alter table incidents enable row level security;
 alter table zone_boundaries enable row level security;
 
--- Trees: public read, admin write
+-- Trees: public read, public insert (for student submissions), admin update/delete
 create policy "trees_public_read" on trees for select using (true);
-create policy "trees_admin_insert" on trees for insert with check (auth.role() = 'authenticated');
+create policy "trees_public_insert" on trees for insert with check (true);
 create policy "trees_admin_update" on trees for update using (auth.role() = 'authenticated');
 create policy "trees_admin_delete" on trees for delete using (auth.role() = 'authenticated');
 
--- Tree photos: public read, admin write
+-- Tree photos: public read and insert, admin delete
 create policy "photos_public_read" on tree_photos for select using (true);
-create policy "photos_admin_write" on tree_photos for insert with check (auth.role() = 'authenticated');
+create policy "photos_public_insert" on tree_photos for insert with check (true);
 create policy "photos_admin_delete" on tree_photos for delete using (auth.role() = 'authenticated');
 
 -- Incidents: public read and insert, admin update/delete

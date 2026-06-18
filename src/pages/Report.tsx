@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { MapPin, Camera, CheckCircle2, Loader2, TreePine, AlertTriangle } from 'lucide-react';
+import { MapPin, Camera, CheckCircle2, Loader2, TreePine, AlertTriangle, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Tree, TreeCondition } from '../lib/types';
 
@@ -34,6 +34,7 @@ export default function Report() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Add tree form
@@ -44,9 +45,26 @@ export default function Report() {
   const [addSuccess, setAddSuccess] = useState(false);
 
   useEffect(() => {
-    supabase.from('trees').select('id, tree_name, lat, lng, department, group_no, height, diameter')
-      .then(({ data }) => setTrees((data as Tree[]) || []));
+    loadAllTrees();
   }, []);
+
+  async function loadAllTrees() {
+    const all: any[] = [];
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data } = await supabase
+        .from('trees')
+        .select('id, tree_name, lat, lng, department, group_no, height, diameter')
+        .order('tree_name')
+        .range(from, from + PAGE - 1);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    setTrees(all as Tree[]);
+  }
 
   const getLocation = useCallback(() => {
     if (!navigator.geolocation) return;
@@ -97,69 +115,93 @@ export default function Report() {
     e.preventDefault();
     if (!condition || !selectedTreeId) return;
     setSubmitting(true);
+    setError(null);
 
-    const incidentId = crypto.randomUUID();
-    let photoUrl: string | null = null;
-    if (photoFile) photoUrl = await uploadPhoto(photoFile, incidentId);
+    try {
+      const incidentId = crypto.randomUUID();
+      let photoUrl: string | null = null;
+      if (photoFile) photoUrl = await uploadPhoto(photoFile, incidentId);
 
-    const { error } = await supabase.from('incidents').insert({
-      id: incidentId,
-      tree_id: selectedTreeId,
-      submitted_by: submitterName || null,
-      description: description || null,
-      condition,
-      is_verified: false,
-      photo_url: photoUrl,
-    });
+      const { error: insertErr } = await supabase.from('incidents').insert({
+        id: incidentId,
+        tree_id: selectedTreeId,
+        submitted_by: submitterName || null,
+        description: description || null,
+        condition,
+        is_verified: false,
+        photo_url: photoUrl,
+      });
 
-    setSubmitting(false);
-    if (!error) {
+      if (insertErr) {
+        setError(`Failed to submit report: ${insertErr.message}`);
+        setSubmitting(false);
+        return;
+      }
+
       setSuccess(true);
       setCondition('');
       setDescription('');
       setSubmitterName('');
       setPhotoFile(null);
       setPhotoPreview(null);
+    } catch (err: any) {
+      setError(`Something went wrong: ${err.message || 'Please try again.'}`);
     }
+    setSubmitting(false);
   }
 
   async function submitAddTree(e: React.FormEvent) {
     e.preventDefault();
     if (!gps || !newName || !condition) return;
     setSubmitting(true);
+    setError(null);
 
-    const { data: tree, error: treeErr } = await supabase.from('trees').insert({
-      tree_name: newName,
-      height: newHeight || null,
-      diameter: newDiameter || null,
-      department: newDept || null,
-      lat: gps.lat,
-      lng: gps.lng,
-      group_no: 'Student Submitted',
-      source_group: 'Student Submission',
-    }).select().single();
+    try {
+      const { data: tree, error: treeErr } = await supabase.from('trees').insert({
+        tree_name: newName,
+        height: newHeight || null,
+        diameter: newDiameter || null,
+        department: newDept || null,
+        lat: gps.lat,
+        lng: gps.lng,
+        group_no: 'Student Submitted',
+        source_group: 'Student Submission',
+      }).select().single();
 
-    if (treeErr || !tree) { setSubmitting(false); return; }
+      if (treeErr || !tree) {
+        setError(`Failed to add tree: ${treeErr?.message || 'Unknown error'}. Please try again.`);
+        setSubmitting(false);
+        return;
+      }
 
-    const incidentId = crypto.randomUUID();
-    let photoUrl: string | null = null;
-    if (photoFile) photoUrl = await uploadPhoto(photoFile, incidentId);
+      const incidentId = crypto.randomUUID();
+      let photoUrl: string | null = null;
+      if (photoFile) photoUrl = await uploadPhoto(photoFile, incidentId);
 
-    await supabase.from('incidents').insert({
-      id: incidentId,
-      tree_id: tree.id,
-      submitted_by: submitterName || null,
-      description: description || null,
-      condition,
-      is_verified: false,
-      photo_url: photoUrl,
-    });
+      const { error: incErr } = await supabase.from('incidents').insert({
+        id: incidentId,
+        tree_id: tree.id,
+        submitted_by: submitterName || null,
+        description: description || null,
+        condition,
+        is_verified: false,
+        photo_url: photoUrl,
+      });
 
+      if (incErr) {
+        setError(`Tree added but failed to save condition report: ${incErr.message}`);
+        setSubmitting(false);
+        return;
+      }
+
+      setAddSuccess(true);
+      setNewName(''); setNewHeight(''); setNewDiameter(''); setNewDept('');
+      setCondition(''); setDescription(''); setSubmitterName('');
+      setPhotoFile(null); setPhotoPreview(null);
+    } catch (err: any) {
+      setError(`Something went wrong: ${err.message || 'Please try again.'}`);
+    }
     setSubmitting(false);
-    setAddSuccess(true);
-    setNewName(''); setNewHeight(''); setNewDiameter(''); setNewDept('');
-    setCondition(''); setDescription(''); setSubmitterName('');
-    setPhotoFile(null); setPhotoPreview(null);
   }
 
   return (
@@ -221,6 +263,19 @@ export default function Report() {
             <p className="text-xs text-stone-400 mt-1">Tap "Detect GPS" to use your location</p>
           )}
         </div>
+
+        {error && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-red-800 font-medium">Submission Failed</p>
+              <p className="text-xs text-red-600 mt-0.5">{error}</p>
+            </div>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* ── REPORT ISSUE TAB ────────────────────────────────────── */}
         {tab === 'report' && (
